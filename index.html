@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mini Framework Level 2</title>
+    <title>Mini Framework Level 3</title>
 </head>
 
 <body>
@@ -10,18 +10,18 @@
 
 <script>
 
-/* ---------------- Virtual DOM ---------------- */
+/* ---------------- createElement ---------------- */
 function createElement(type, props, ...children){
     return {
         type,
         props: {
             ...props,
-            children
+            children: children.flat()
         }
     };
 }
 
-/* ---------------- Global State ---------------- */
+/* ---------------- Globals ---------------- */
 let hooks = [];
 let hookIndex = 0;
 
@@ -68,7 +68,7 @@ function useEffect(fn, deps){
     hookIndex++;
 }
 
-/* ---------------- DOM Creation ---------------- */
+/* ---------------- DOM creation ---------------- */
 function createDOMNode(vNode){
 
     if (typeof vNode === "string" || typeof vNode === "number"){
@@ -95,38 +95,33 @@ function createDOMNode(vNode){
 
     });
 
-    (props.children || []).forEach(child => {
-        el.appendChild(createDOMNode(child));
-    });
-
     return el;
 }
 
-/* ---------------- Props Update ---------------- */
+/* ---------------- Props update ---------------- */
 function updateProps(dom, oldProps, newProps){
 
-    for (let key in oldProps){
-        if (key.startsWith("on")) continue;
-        if (!(key in newProps)){
-            dom[key] = "";
+    for (let k in oldProps){
+        if (!(k in newProps) && !k.startsWith("on")){
+            dom[k] = "";
         }
     }
 
-    for (let key in newProps){
-        if (key === "children") continue;
+    for (let k in newProps){
+        if (k === "children") continue;
 
-        if (key.startsWith("on")){
-            dom[key.toLowerCase()] = newProps[key];
+        if (k.startsWith("on")){
+            dom[k.toLowerCase()] = newProps[k];
         } else {
-            dom[key] = newProps[key];
+            dom[k] = newProps[k];
         }
     }
 }
 
-/* ---------------- Diff Engine ---------------- */
+/* ---------------- KEYED DIFF (LEVEL 3 CORE) ---------------- */
 function diff(oldVNode, newVNode, parent){
 
-    // remove
+    // remove node
     if (!newVNode){
         parent.innerHTML = "";
         return null;
@@ -150,19 +145,34 @@ function diff(oldVNode, newVNode, parent){
     // update props
     updateProps(parent, oldVNode.props || {}, newVNode.props || {});
 
-    // children diff
+    /* ---------------- KEYED CHILD DIFF (IMPORTANT UPGRADE) ---------------- */
+
     const oldChildren = oldVNode.props?.children || [];
     const newChildren = newVNode.props?.children || [];
 
-    const max = Math.max(oldChildren.length, newChildren.length);
+    const oldKeyMap = new Map();
 
-    for (let i = 0; i < max; i++){
-        diff(
-            oldChildren[i],
-            newChildren[i],
-            parent.childNodes[i]
-        );
-    }
+    oldChildren.forEach((child, i) => {
+        const key = child?.props?.key ?? i;
+        oldKeyMap.set(key, { child, index: i });
+    });
+
+    const newDomChildren = [];
+
+    newChildren.forEach((newChild, newIndex) => {
+
+        const key = newChild?.props?.key ?? newIndex;
+
+        const match = oldKeyMap.get(key);
+
+        const oldChild = match ? match.child : null;
+
+        const oldDom = parent.childNodes[newIndex];
+
+        const updated = diff(oldChild, newChild, oldDom || parent);
+
+        newDomChildren.push(updated);
+    });
 
     return parent;
 }
@@ -174,7 +184,6 @@ function render(){
 
     const newVNode = AppRef();
 
-    // first render
     if (!oldVNode){
         rootDOM = createDOMNode(newVNode);
         RootRef.appendChild(rootDOM);
@@ -182,7 +191,6 @@ function render(){
         return;
     }
 
-    // update render (diffing)
     rootDOM = diff(oldVNode, newVNode, rootDOM);
     oldVNode = newVNode;
 }
@@ -194,12 +202,13 @@ function start(App, root){
     render();
 }
 
-/* ---------------- App ---------------- */
+/* ---------------- Example App ---------------- */
 function App(){
     return createElement(
         "div",
         null,
-        createElement("h1", null, "My PulseUI App"),
+        createElement("h1", null, "Level 3 Framework"),
+
         createElement(Counter, null)
     );
 }
@@ -216,7 +225,8 @@ function Counter(){
     return createElement(
         "div",
         null,
-        createElement("h1", null, `Count: ${count}`),
+        createElement("h2", null, `Count: ${count}`),
+
         createElement(
             "button",
             {
@@ -227,10 +237,8 @@ function Counter(){
     );
 }
 
-/* ---------------- Bootstrap ---------------- */
-const root = document.getElementById("root");
-
-start(App, root);
+/* ---------------- boot ---------------- */
+start(App, document.getElementById("root"));
 
 </script>
 
