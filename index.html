@@ -28,6 +28,7 @@ let hookIndex=0;
 
 let AppRef=null;
 let RootRef=null;
+let oldVNode=null;
 
 function useState(initial){
 
@@ -133,15 +134,34 @@ function render(){
 
     hookIndex=0;
 
-    RootRef.innerHTML="";
-
-    RootRef.appendChild(
-
-        createDOMNode(
-            createElement(AppRef)
-        )
-
+    const newVNode=
+    createElement(
+        AppRef
     );
+
+    if(!oldVNode){
+
+        RootRef.appendChild(
+
+            createDOMNode(
+                newVNode
+            )
+
+        );
+
+    }
+
+    else{
+
+        console.log(
+            "Comparing old and new UI..."
+        );
+
+    }
+
+    oldVNode=
+        newVNode;
+
 }
 
 function rerender(){
