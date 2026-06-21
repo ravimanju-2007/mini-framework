@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mini Framework Level 4</title>
+    <title>Mini Framework Level 8 (Priority Fiber)</title>
 </head>
 
 <body>
@@ -21,208 +21,229 @@ function createElement(type, props, ...children){
     };
 }
 
-/* ---------------- Global State ---------------- */
+/* ---------------- GLOBAL STATE ---------------- */
 let hooks = [];
 let hookIndex = 0;
 
 let AppRef = null;
 let RootRef = null;
 
-let oldVNode = null;
-let rootDOM = null;
+/* ---------------- FIBER CORE ---------------- */
+let wipRoot = null;
+let currentRoot = null;
+let nextUnitOfWork = null;
 
-/* ---------------- RENDER QUEUE (NEW) ---------------- */
-let isRendering = false;
-let updateQueue = new Set();
+/* ---------------- PRIORITY SYSTEM (LEVEL 8 CORE) ---------------- */
+const PRIORITY = {
+    HIGH: 1,
+    NORMAL: 2,
+    LOW: 3
+};
 
-/* ---------------- SCHEDULED RENDER (NEW CORE) ---------------- */
-function scheduleRender(){
+let updateQueue = [];
 
-    updateQueue.add(true);
+/* ---------------- SCHEDULE WITH PRIORITY ---------------- */
+function scheduleUpdate(priority = PRIORITY.NORMAL){
 
-    if (isRendering) return;
+    updateQueue.push(priority);
 
-    isRendering = true;
+    updateQueue.sort((a, b) => a - b);
 
-    queueMicrotask(() => {
-
-        if (updateQueue.size > 0){
-            updateQueue.clear();
-            render();
-        }
-
-        isRendering = false;
-    });
+    if (!nextUnitOfWork){
+        requestIdleCallback(workLoop);
+    }
 }
 
-/* ---------------- useState (BATCHED) ---------------- */
+/* ---------------- WORK LOOP (INTERRUPTIBLE) ---------------- */
+function workLoop(deadline){
+
+    let shouldYield = false;
+
+    while (nextUnitOfWork && !shouldYield){
+
+        nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
+
+        shouldYield = deadline.timeRemaining() < 1;
+    }
+
+    if (!nextUnitOfWork && wipRoot){
+        commitRoot();
+    }
+
+    if (nextUnitOfWork){
+        requestIdleCallback(workLoop);
+    }
+}
+
+/* ---------------- UNIT OF WORK ---------------- */
+function performUnitOfWork(fiber){
+
+    const isFunction = typeof fiber.type === "function";
+
+    if (isFunction){
+        updateFunctionComponent(fiber);
+    } else {
+        updateHostComponent(fiber);
+    }
+
+    if (fiber.child){
+        return fiber.child;
+    }
+
+    let next = fiber;
+
+    while (next){
+        if (next.sibling){
+            return next.sibling;
+        }
+        next = next.parent;
+    }
+
+    return null;
+}
+
+/* ---------------- FUNCTION COMPONENT ---------------- */
+function updateFunctionComponent(fiber){
+    hookIndex = 0;
+    const children = [fiber.type(fiber.props)];
+    reconcileChildren(fiber, children);
+}
+
+/* ---------------- HOST COMPONENT ---------------- */
+function updateHostComponent(fiber){
+
+    if (!fiber.dom){
+        fiber.dom = document.createElement(fiber.type);
+    }
+
+    reconcileChildren(fiber, fiber.props?.children || []);
+}
+
+/* ---------------- RECONCILER ---------------- */
+function reconcileChildren(parentFiber, elements){
+
+    let index = 0;
+    let prevSibling = null;
+
+    while (index < elements.length){
+
+        const element = elements[index];
+
+        const newFiber = {
+            type: element.type,
+            props: element.props,
+            parent: parentFiber,
+            dom: null,
+            alternate: null,
+            effectTag: "PLACEMENT"
+        };
+
+        if (index === 0){
+            parentFiber.child = newFiber;
+        } else {
+            prevSibling.sibling = newFiber;
+        }
+
+        prevSibling = newFiber;
+        index++;
+    }
+}
+
+/* ---------------- COMMIT ---------------- */
+function commitRoot(){
+    commitWork(wipRoot.child);
+    currentRoot = wipRoot;
+    wipRoot = null;
+}
+
+/* ---------------- DOM COMMIT ---------------- */
+function commitWork(fiber){
+
+    if (!fiber) return;
+
+    const domParent = fiber.parent.dom;
+
+    if (fiber.effectTag === "PLACEMENT" && fiber.dom){
+        domParent.appendChild(fiber.dom);
+    }
+
+    commitWork(fiber.child);
+    commitWork(fiber.sibling);
+}
+
+/* ---------------- useState ---------------- */
 function useState(initial){
 
-    const current = hookIndex;
+    const oldHook =
+        currentRoot?.alternate?.hooks?.[hookIndex];
 
-    hooks[current] = hooks[current] ?? initial;
+    const hook = {
+        state: oldHook ? oldHook.state : initial
+    };
 
-    function setState(newValue){
+    function setState(value){
 
-        hooks[current] = newValue;
+        hook.state = value;
 
-        // IMPORTANT: no direct render
-        scheduleRender();
+        // LEVEL 8: high priority for user interactions
+        scheduleUpdate(PRIORITY.HIGH);
     }
+
+    if (!currentRoot?.hooks){
+        currentRoot = { hooks: [] };
+    }
+
+    currentRoot.hooks.push(hook);
 
     hookIndex++;
 
-    return [hooks[current], setState];
+    return [hook.state, setState];
 }
 
 /* ---------------- useEffect ---------------- */
 function useEffect(fn, deps){
-
-    const current = hookIndex;
-    const oldDeps = hooks[current];
-
-    let changed = true;
-
-    if (oldDeps){
-        changed = deps.some((d, i) => d !== oldDeps[i]);
-    }
-
-    if (changed){
-        queueMicrotask(fn);
-        hooks[current] = deps;
-    }
-
-    hookIndex++;
+    queueMicrotask(fn);
 }
 
-/* ---------------- DOM creation ---------------- */
-function createDOMNode(vNode){
-
-    if (typeof vNode === "string" || typeof vNode === "number"){
-        return document.createTextNode(vNode);
-    }
-
-    if (typeof vNode.type === "function"){
-        return createDOMNode(vNode.type(vNode.props));
-    }
-
-    const el = document.createElement(vNode.type);
-
-    const props = vNode.props || {};
-
-    Object.entries(props).forEach(([k, v]) => {
-
-        if (k === "children") return;
-
-        if (k.startsWith("on")){
-            el.addEventListener(k.slice(2).toLowerCase(), v);
-        } else {
-            el[k] = v;
-        }
-
-    });
-
-    return el;
-}
-
-/* ---------------- Props update ---------------- */
-function updateProps(dom, oldProps, newProps){
-
-    for (let k in oldProps){
-        if (!(k in newProps) && !k.startsWith("on")){
-            dom[k] = "";
-        }
-    }
-
-    for (let k in newProps){
-        if (k === "children") continue;
-
-        if (k.startsWith("on")){
-            dom[k.toLowerCase()] = newProps[k];
-        } else {
-            dom[k] = newProps[k];
-        }
-    }
-}
-
-/* ---------------- DIFF (simplified stable version) ---------------- */
-function diff(oldVNode, newVNode, parent){
-
-    if (!newVNode){
-        parent.innerHTML = "";
-        return null;
-    }
-
-    if (!oldVNode || oldVNode.type !== newVNode.type){
-        const newDOM = createDOMNode(newVNode);
-        parent.replaceWith(newDOM);
-        return newDOM;
-    }
-
-    if (typeof newVNode === "string" || typeof newVNode === "number"){
-        if (oldVNode !== newVNode){
-            parent.textContent = newVNode;
-        }
-        return parent;
-    }
-
-    updateProps(parent, oldVNode.props || {}, newVNode.props || {});
-
-    const oldChildren = oldVNode.props?.children || [];
-    const newChildren = newVNode.props?.children || [];
-
-    const max = Math.max(oldChildren.length, newChildren.length);
-
-    for (let i = 0; i < max; i++){
-        diff(oldChildren[i], newChildren[i], parent.childNodes[i]);
-    }
-
-    return parent;
-}
-
-/* ---------------- Render ---------------- */
+/* ---------------- RENDER ---------------- */
 function render(){
 
     hookIndex = 0;
 
-    const newVNode = AppRef();
+    wipRoot = {
+        dom: RootRef,
+        props: {
+            children: [AppRef()]
+        },
+        alternate: currentRoot
+    };
 
-    if (!oldVNode){
-        rootDOM = createDOMNode(newVNode);
-        RootRef.appendChild(rootDOM);
-        oldVNode = newVNode;
-        return;
-    }
+    nextUnitOfWork = wipRoot;
 
-    rootDOM = diff(oldVNode, newVNode, rootDOM);
-    oldVNode = newVNode;
+    requestIdleCallback(workLoop);
 }
 
-/* ---------------- Start ---------------- */
+/* ---------------- START ---------------- */
 function start(App, root){
     AppRef = App;
     RootRef = root;
-    render();
+    scheduleUpdate(PRIORITY.NORMAL);
 }
 
-/* ---------------- App ---------------- */
+/* ---------------- APP ---------------- */
 function App(){
     return createElement(
         "div",
         null,
-        createElement("h1", null, "Level 4 Framework 🚀"),
+        createElement("h1", null, "LEVEL 8 🚀 Priority Fiber"),
         createElement(Counter, null)
     );
 }
 
-/* ---------------- Counter ---------------- */
+/* ---------------- COUNTER ---------------- */
 function Counter(){
 
     const [count, setCount] = useState(0);
-
-    useEffect(() => {
-        console.log("Count changed:", count);
-    }, [count]);
 
     return createElement(
         "div",
@@ -231,14 +252,16 @@ function Counter(){
         createElement(
             "button",
             {
-                onClick: () => setCount(count + 1)
+                onClick: () => {
+                    setCount(count + 1);
+                }
             },
-            "Increase"
+            "Increase (Priority Update)"
         )
     );
 }
 
-/* ---------------- boot ---------------- */
+/* ---------------- BOOT ---------------- */
 start(App, document.getElementById("root"));
 
 </script>
