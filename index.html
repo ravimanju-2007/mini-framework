@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mini Framework</title>
+    <title>Mini Framework Level 2</title>
 </head>
 
 <body>
@@ -10,6 +10,7 @@
 
 <script>
 
+/* ---------------- Virtual DOM ---------------- */
 function createElement(type, props, ...children){
     return {
         type,
@@ -20,11 +21,15 @@ function createElement(type, props, ...children){
     };
 }
 
+/* ---------------- Global State ---------------- */
 let hooks = [];
 let hookIndex = 0;
 
 let AppRef = null;
 let RootRef = null;
+
+let oldVNode = null;
+let rootDOM = null;
 
 /* ---------------- useState ---------------- */
 function useState(initial){
@@ -33,10 +38,10 @@ function useState(initial){
 
     hooks[current] = hooks[current] ?? initial;
 
-    const setState = (newValue) => {
+    function setState(newValue){
         hooks[current] = newValue;
         render();
-    };
+    }
 
     hookIndex++;
 
@@ -52,7 +57,7 @@ function useEffect(fn, deps){
     let changed = true;
 
     if (oldDeps){
-        changed = deps.some((dep, i) => dep !== oldDeps[i]);
+        changed = deps.some((d, i) => d !== oldDeps[i]);
     }
 
     if (changed){
@@ -63,7 +68,7 @@ function useEffect(fn, deps){
     hookIndex++;
 }
 
-/* ---------------- DOM ---------------- */
+/* ---------------- DOM Creation ---------------- */
 function createDOMNode(vNode){
 
     if (typeof vNode === "string" || typeof vNode === "number"){
@@ -97,16 +102,89 @@ function createDOMNode(vNode){
     return el;
 }
 
+/* ---------------- Props Update ---------------- */
+function updateProps(dom, oldProps, newProps){
+
+    for (let key in oldProps){
+        if (key.startsWith("on")) continue;
+        if (!(key in newProps)){
+            dom[key] = "";
+        }
+    }
+
+    for (let key in newProps){
+        if (key === "children") continue;
+
+        if (key.startsWith("on")){
+            dom[key.toLowerCase()] = newProps[key];
+        } else {
+            dom[key] = newProps[key];
+        }
+    }
+}
+
+/* ---------------- Diff Engine ---------------- */
+function diff(oldVNode, newVNode, parent){
+
+    // remove
+    if (!newVNode){
+        parent.innerHTML = "";
+        return null;
+    }
+
+    // replace node
+    if (!oldVNode || oldVNode.type !== newVNode.type){
+        const newDOM = createDOMNode(newVNode);
+        parent.replaceWith(newDOM);
+        return newDOM;
+    }
+
+    // text node
+    if (typeof newVNode === "string" || typeof newVNode === "number"){
+        if (oldVNode !== newVNode){
+            parent.textContent = newVNode;
+        }
+        return parent;
+    }
+
+    // update props
+    updateProps(parent, oldVNode.props || {}, newVNode.props || {});
+
+    // children diff
+    const oldChildren = oldVNode.props?.children || [];
+    const newChildren = newVNode.props?.children || [];
+
+    const max = Math.max(oldChildren.length, newChildren.length);
+
+    for (let i = 0; i < max; i++){
+        diff(
+            oldChildren[i],
+            newChildren[i],
+            parent.childNodes[i]
+        );
+    }
+
+    return parent;
+}
+
 /* ---------------- Render ---------------- */
 function render(){
 
     hookIndex = 0;
 
-    RootRef.innerHTML = "";
+    const newVNode = AppRef();
 
-    const vNode = AppRef();
+    // first render
+    if (!oldVNode){
+        rootDOM = createDOMNode(newVNode);
+        RootRef.appendChild(rootDOM);
+        oldVNode = newVNode;
+        return;
+    }
 
-    RootRef.appendChild(createDOMNode(vNode));
+    // update render (diffing)
+    rootDOM = diff(oldVNode, newVNode, rootDOM);
+    oldVNode = newVNode;
 }
 
 /* ---------------- Start ---------------- */
