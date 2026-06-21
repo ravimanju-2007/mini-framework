@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Mini Framework</title>
+</head>
+
+<body>
+
+<div id="root"></div>
+
+<script>
+
+function createElement(type, props, ...children){
+
+    return {
+        type,
+        props:{
+            ...props,
+            children
+        }
+    };
+}
+
+let hooks=[];
+let hookIndex=0;
+
+let AppRef=null;
+let RootRef=null;
+
+function useState(initial){
+
+    const current=hookIndex;
+
+    hooks[current] ??= initial;
+
+    function setState(newValue){
+
+        hooks[current]=newValue;
+
+        rerender();
+
+    }
+
+    hookIndex++;
+
+    return [
+        hooks[current],
+        setState
+    ];
+}
+
+function createDOMNode(vNode){
+
+    if(
+        typeof vNode==="string" ||
+        typeof vNode==="number"
+    ){
+        return document.createTextNode(vNode);
+    }
+
+    if(
+        typeof vNode.type==="function"
+    ){
+
+        return createDOMNode(
+            vNode.type(vNode.props)
+        );
+    }
+
+    const el=
+    document.createElement(vNode.type);
+
+    Object.entries(
+        vNode.props||{}
+    ).forEach(([k,v])=>{
+
+        if(k==="children")
+            return;
+
+        if(
+            k.startsWith("on")
+        ){
+
+            el.addEventListener(
+                k.slice(2)
+                .toLowerCase(),
+                v
+            );
+        }
+
+    });
+
+    vNode.props.children
+    .forEach(child=>{
+
+        el.appendChild(
+            createDOMNode(child)
+        );
+
+    });
+
+    return el;
+}
+
+function render(){
+
+    hookIndex=0;
+
+    RootRef.innerHTML="";
+
+    RootRef.appendChild(
+
+        createDOMNode(
+            createElement(AppRef)
+        )
+
+    );
+}
+
+function rerender(){
+
+    render();
+
+}
+
+function start(App,root){
+
+    AppRef=App;
+
+    RootRef=root;
+
+    render();
+
+}
+
+function Counter(){
+
+    const[
+        count,
+        setCount
+    ]=useState(0);
+
+    return createElement(
+
+        "div",
+
+        null,
+
+        createElement(
+            "h1",
+            null,
+            `Count: ${count}`
+        ),
+
+        createElement(
+
+            "button",
+
+            {
+                onClick:()=>{
+
+                    setCount(
+                        count+1
+                    );
+
+                }
+            },
+
+            "Increase"
+
+        )
+
+    );
+}
+
+const root=
+document.getElementById(
+    "root"
+);
+
+start(
+    Counter,
+    root
+);
+
+</script>
+
+</body>
+</html>
