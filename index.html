@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Mini Framework Level 3</title>
+    <title>Mini Framework Level 4</title>
 </head>
 
 <body>
@@ -21,7 +21,7 @@ function createElement(type, props, ...children){
     };
 }
 
-/* ---------------- Globals ---------------- */
+/* ---------------- Global State ---------------- */
 let hooks = [];
 let hookIndex = 0;
 
@@ -31,7 +31,31 @@ let RootRef = null;
 let oldVNode = null;
 let rootDOM = null;
 
-/* ---------------- useState ---------------- */
+/* ---------------- RENDER QUEUE (NEW) ---------------- */
+let isRendering = false;
+let updateQueue = new Set();
+
+/* ---------------- SCHEDULED RENDER (NEW CORE) ---------------- */
+function scheduleRender(){
+
+    updateQueue.add(true);
+
+    if (isRendering) return;
+
+    isRendering = true;
+
+    queueMicrotask(() => {
+
+        if (updateQueue.size > 0){
+            updateQueue.clear();
+            render();
+        }
+
+        isRendering = false;
+    });
+}
+
+/* ---------------- useState (BATCHED) ---------------- */
 function useState(initial){
 
     const current = hookIndex;
@@ -39,8 +63,11 @@ function useState(initial){
     hooks[current] = hooks[current] ?? initial;
 
     function setState(newValue){
+
         hooks[current] = newValue;
-        render();
+
+        // IMPORTANT: no direct render
+        scheduleRender();
     }
 
     hookIndex++;
@@ -118,23 +145,20 @@ function updateProps(dom, oldProps, newProps){
     }
 }
 
-/* ---------------- KEYED DIFF (LEVEL 3 CORE) ---------------- */
+/* ---------------- DIFF (simplified stable version) ---------------- */
 function diff(oldVNode, newVNode, parent){
 
-    // remove node
     if (!newVNode){
         parent.innerHTML = "";
         return null;
     }
 
-    // replace node
     if (!oldVNode || oldVNode.type !== newVNode.type){
         const newDOM = createDOMNode(newVNode);
         parent.replaceWith(newDOM);
         return newDOM;
     }
 
-    // text node
     if (typeof newVNode === "string" || typeof newVNode === "number"){
         if (oldVNode !== newVNode){
             parent.textContent = newVNode;
@@ -142,37 +166,16 @@ function diff(oldVNode, newVNode, parent){
         return parent;
     }
 
-    // update props
     updateProps(parent, oldVNode.props || {}, newVNode.props || {});
-
-    /* ---------------- KEYED CHILD DIFF (IMPORTANT UPGRADE) ---------------- */
 
     const oldChildren = oldVNode.props?.children || [];
     const newChildren = newVNode.props?.children || [];
 
-    const oldKeyMap = new Map();
+    const max = Math.max(oldChildren.length, newChildren.length);
 
-    oldChildren.forEach((child, i) => {
-        const key = child?.props?.key ?? i;
-        oldKeyMap.set(key, { child, index: i });
-    });
-
-    const newDomChildren = [];
-
-    newChildren.forEach((newChild, newIndex) => {
-
-        const key = newChild?.props?.key ?? newIndex;
-
-        const match = oldKeyMap.get(key);
-
-        const oldChild = match ? match.child : null;
-
-        const oldDom = parent.childNodes[newIndex];
-
-        const updated = diff(oldChild, newChild, oldDom || parent);
-
-        newDomChildren.push(updated);
-    });
+    for (let i = 0; i < max; i++){
+        diff(oldChildren[i], newChildren[i], parent.childNodes[i]);
+    }
 
     return parent;
 }
@@ -202,13 +205,12 @@ function start(App, root){
     render();
 }
 
-/* ---------------- Example App ---------------- */
+/* ---------------- App ---------------- */
 function App(){
     return createElement(
         "div",
         null,
-        createElement("h1", null, "Level 3 Framework"),
-
+        createElement("h1", null, "Level 4 Framework 🚀"),
         createElement(Counter, null)
     );
 }
@@ -226,7 +228,6 @@ function Counter(){
         "div",
         null,
         createElement("h2", null, `Count: ${count}`),
-
         createElement(
             "button",
             {
