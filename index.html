@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html>
-
 <head>
     <title>Mini Framework</title>
 </head>
@@ -8,236 +7,152 @@
 <body>
 
 <div id="root"></div>
-    
-    
+
 <script>
 
 function createElement(type, props, ...children){
-
     return {
         type,
-        props:{
+        props: {
             ...props,
             children
         }
     };
 }
 
-let hooks=[];
-let hookIndex=0;
+let hooks = [];
+let hookIndex = 0;
 
-let AppRef=null;
-let RootRef=null;
-let oldVNode=null;
+let AppRef = null;
+let RootRef = null;
 
+/* ---------------- useState ---------------- */
 function useState(initial){
 
-    const current=hookIndex;
+    const current = hookIndex;
 
-    hooks[current] ??= initial;
+    hooks[current] = hooks[current] ?? initial;
 
-    function setState(newValue){
+    const setState = (newValue) => {
+        hooks[current] = newValue;
+        render();
+    };
 
-        hooks[current]=newValue;
+    hookIndex++;
 
-        rerender();
+    return [hooks[current], setState];
+}
 
+/* ---------------- useEffect ---------------- */
+function useEffect(fn, deps){
+
+    const current = hookIndex;
+    const oldDeps = hooks[current];
+
+    let changed = true;
+
+    if (oldDeps){
+        changed = deps.some((dep, i) => dep !== oldDeps[i]);
     }
 
-function useEffect(fn,deps){
-
-    const current=hookIndex;
-
-    const oldDeps=hooks[current];
-
-    let changed=true;
-
-    if(oldDeps){
-
-        changed=deps.some(
-            (dep,i)=>dep!==oldDeps[i]
-        );
-    }
-
-    if(changed){
-
+    if (changed){
         queueMicrotask(fn);
-
-        hooks[current]=deps;
+        hooks[current] = deps;
     }
 
     hookIndex++;
 }
-    
-    hookIndex++;
 
-    return [
-        hooks[current],
-        setState
-    ];
-}
-
+/* ---------------- DOM ---------------- */
 function createDOMNode(vNode){
 
-    if(
-        typeof vNode==="string" ||
-        typeof vNode==="number"
-    ){
+    if (typeof vNode === "string" || typeof vNode === "number"){
         return document.createTextNode(vNode);
     }
 
-    if(
-        typeof vNode.type==="function"
-    ){
-
-        return createDOMNode(
-            vNode.type(vNode.props)
-        );
+    if (typeof vNode.type === "function"){
+        return createDOMNode(vNode.type(vNode.props));
     }
 
-    const el=
-    document.createElement(vNode.type);
+    const el = document.createElement(vNode.type);
 
-    Object.entries(
-        vNode.props||{}
-    ).forEach(([k,v])=>{
+    const props = vNode.props || {};
 
-        if(k==="children")
-            return;
+    Object.entries(props).forEach(([k, v]) => {
 
-        if(
-            k.startsWith("on")
-        ){
+        if (k === "children") return;
 
-            el.addEventListener(
-                k.slice(2)
-                .toLowerCase(),
-                v
-            );
+        if (k.startsWith("on")){
+            el.addEventListener(k.slice(2).toLowerCase(), v);
+        } else {
+            el[k] = v;
         }
 
     });
 
-    vNode.props.children
-    .forEach(child=>{
-
-        el.appendChild(
-            createDOMNode(child)
-        );
-
+    (props.children || []).forEach(child => {
+        el.appendChild(createDOMNode(child));
     });
 
     return el;
 }
 
+/* ---------------- Render ---------------- */
 function render(){
 
-    hookIndex=0;
+    hookIndex = 0;
 
-    const newVNode=
-    createElement(
-        AppRef
+    RootRef.innerHTML = "";
+
+    const vNode = AppRef();
+
+    RootRef.appendChild(createDOMNode(vNode));
+}
+
+/* ---------------- Start ---------------- */
+function start(App, root){
+    AppRef = App;
+    RootRef = root;
+    render();
+}
+
+/* ---------------- App ---------------- */
+function App(){
+    return createElement(
+        "div",
+        null,
+        createElement("h1", null, "My PulseUI App"),
+        createElement(Counter, null)
     );
-
-    if(!oldVNode){
-
-        RootRef.appendChild(
-
-            createDOMNode(
-                newVNode
-            )
-
-        );
-
-    }
-
-    else{
-
-        console.log(
-            "Comparing old and new UI..."
-        );
-
-    }
-
-    oldVNode=
-        newVNode;
-
 }
 
-function rerender(){
-
-    render();
-
-}
-
-function start(App,root){
-
-    AppRef=App;
-
-    RootRef=root;
-
-    render();
-
-}
-
+/* ---------------- Counter ---------------- */
 function Counter(){
 
-    const[
-        count,
-        setCount
-    ]=useState(0);
+    const [count, setCount] = useState(0);
 
-    useEffect(()=>{
-
-        console.log(
-            "Count changed:",
-            count
-        );
-
-    },[count]);
+    useEffect(() => {
+        console.log("Count changed:", count);
+    }, [count]);
 
     return createElement(
-
         "div",
-
         null,
-
+        createElement("h1", null, `Count: ${count}`),
         createElement(
-            "h1",
-            null,
-            `Count: ${count}`
-        ),
-
-        createElement(
-
             "button",
-
             {
-                onClick:()=>{
-
-                    setCount(
-                        count+1
-                    );
-
-                }
+                onClick: () => setCount(count + 1)
             },
-
             "Increase"
-
         )
-
     );
 }
 
-const root=
-document.getElementById(
-    "root"
-);
+/* ---------------- Bootstrap ---------------- */
+const root = document.getElementById("root");
 
-start(
-    Counter,
-    root
-);
+start(App, root);
 
 </script>
 
