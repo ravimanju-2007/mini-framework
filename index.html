@@ -42,6 +42,31 @@ function useState(initial){
 
     }
 
+function useEffect(fn,deps){
+
+    const current=hookIndex;
+
+    const oldDeps=hooks[current];
+
+    let changed=true;
+
+    if(oldDeps){
+
+        changed=deps.some(
+            (dep,i)=>dep!==oldDeps[i]
+        );
+    }
+
+    if(changed){
+
+        queueMicrotask(fn);
+
+        hooks[current]=deps;
+    }
+
+    hookIndex++;
+}
+    
     hookIndex++;
 
     return [
